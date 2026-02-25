@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import seaborn as sns
 
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.model_selection import TimeSeriesSplit
@@ -16,13 +15,13 @@ from lightgbm import LGBMRegressor
 import shap
 
 st.set_page_config(layout="wide")
-st.title("Toll Traffic Research Dashboard")
+st.title("Toll Traffic Research Dashboard (Leakage Analysis Included)")
 
-# -------------------------------
+# -----------------------------
 # Upload Dataset
-# -------------------------------
+# -----------------------------
 
-uploaded_file = st.file_uploader("Upload Dataset (Excel or CSV)")
+uploaded_file = st.file_uploader("Upload Dataset")
 
 if uploaded_file is None:
     st.stop()
@@ -35,142 +34,130 @@ else:
 df["Date"] = pd.to_datetime(df["Date"], dayfirst=True)
 df = df.sort_values("Date").reset_index(drop=True)
 
-# -------------------------------
+# -----------------------------
 # Feature Engineering
-# -------------------------------
+# -----------------------------
 
 df["DayOfWeek"] = df["Date"].dt.dayofweek
 df["Month"] = df["Date"].dt.month
 df["DayOfYear"] = df["Date"].dt.dayofyear
 df["Time_Index"] = np.arange(len(df))
 
-# Lag features
 for lag in [1,7,14,30]:
     df[f"Lag_{lag}"] = df["Total_Vehicles"].shift(lag)
 
-# Rolling features
 for roll in [7,14,30]:
     df[f"Rolling_{roll}"] = df["Total_Vehicles"].rolling(roll).mean()
 
-df = df.dropna()
+df = df.dropna().reset_index(drop=True)
 
-st.subheader("Basic Statistics")
-st.write(df[["Total_Vehicles","Total_Revenue"]].describe())
+# -----------------------------
+# Leakage Sensitivity Section
+# -----------------------------
 
-# -------------------------------
-# Weekend & Holiday Effect
-# -------------------------------
+st.header("Leakage Sensitivity Experiment")
 
-st.subheader("Weekend Effect Hypothesis Test")
+# Scenario A: With Leakage
+features_leaky = [col for col in df.columns 
+                  if col not in ["Date","Total_Vehicles","Total_Revenue"]]
+
+# Scenario B: Without Leakage
+leakage_columns = [
+    "Car_Count","Bus_Count","LCV_Count","MAV_Count",
+    "Car_Revenue","Bus_Revenue","LCV_Revenue","MAV_Revenue"
+]
+
+features_clean = [col for col in features_leaky 
+                  if col not in leakage_columns]
+
+X_leaky = df[features_leaky]
+X_clean = df[features_clean]
+
+y = df["Total_Vehicles"]
+
+split = int(len(df)*0.8)
+
+def evaluate_model(X):
+    X_train, X_test = X.iloc[:split], X.iloc[split:]
+    y_train, y_test = y.iloc[:split], y.iloc[split:]
+    
+    model = XGBRegressor(n_estimators=300, random_state=42)
+    model.fit(X_train,y_train)
+    preds = model.predict(X_test)
+    
+    mae = mean_absolute_error(y_test,preds)
+    rmse = np.sqrt(mean_squared_error(y_test,preds))
+    r2 = r2_score(y_test,preds)
+    
+    return mae, rmse, r2, model
+
+mae_leaky, rmse_leaky, r2_leaky, model_leaky = evaluate_model(X_leaky)
+mae_clean, rmse_clean, r2_clean, model_clean = evaluate_model(X_clean)
+
+inflation = r2_leaky - r2_clean
+
+results_df = pd.DataFrame({
+    "Model Type":["With Leakage","Without Leakage"],
+    "MAE":[mae_leaky,mae_clean],
+    "RMSE":[rmse_leaky,rmse_clean],
+    "R2":[r2_leaky,r2_clean]
+})
+
+st.subheader("Performance Comparison")
+st.write(results_df)
+
+st.subheader("Performance Inflation Due to Leakage")
+st.write("R2 Inflation:", round(inflation,4))
+
+# -----------------------------
+# Hypothesis Testing
+# -----------------------------
+
+st.header("Weekend Effect Hypothesis Test")
 
 weekend = df[df["Is_Weekend"]==1]["Total_Vehicles"]
 weekday = df[df["Is_Weekend"]==0]["Total_Vehicles"]
 
-t_stat, p_val = ttest_ind(weekend, weekday)
+t_stat, p_val = ttest_ind(weekend,weekday)
 
 st.write("Mean Weekend:", weekend.mean())
 st.write("Mean Weekday:", weekday.mean())
 st.write("p-value:", p_val)
 
-# -------------------------------
+# -----------------------------
 # ADF Test
-# -------------------------------
+# -----------------------------
 
-st.subheader("ADF Stationarity Test")
+st.header("ADF Stationarity Test")
 
-adf_result = adfuller(df["Total_Vehicles"])
-st.write("ADF Statistic:", adf_result[0])
-st.write("p-value:", adf_result[1])
+adf = adfuller(df["Total_Vehicles"])
+st.write("ADF Statistic:", adf[0])
+st.write("p-value:", adf[1])
 
-# -------------------------------
+# -----------------------------
 # Seasonal Decomposition
-# -------------------------------
+# -----------------------------
 
-st.subheader("Seasonal Decomposition")
+st.header("Seasonal Decomposition")
 
-decomposition = seasonal_decompose(df["Total_Vehicles"], period=7)
-fig = decomposition.plot()
+decomp = seasonal_decompose(df["Total_Vehicles"], period=7)
+fig = decomp.plot()
 st.pyplot(fig)
 
-# -------------------------------
-# Model Comparison
-# -------------------------------
+# -----------------------------
+# SHAP Analysis (Clean Model Only)
+# -----------------------------
 
-st.subheader("Model Training & Comparison")
+st.header("SHAP Feature Importance (Clean Model)")
 
-features = [col for col in df.columns if col not in 
-            ["Date","Total_Vehicles","Total_Revenue"]]
+X_train_clean = X_clean.iloc[:split]
+X_test_clean = X_clean.iloc[split:]
 
-X = df[features]
-y = df["Total_Vehicles"]
+explainer = shap.TreeExplainer(model_clean)
+shap_values = explainer.shap_values(X_test_clean)
 
-split = int(len(df)*0.8)
-X_train, X_test = X.iloc[:split], X.iloc[split:]
-y_train, y_test = y.iloc[:split], y.iloc[split:]
+plt.figure()
+shap.summary_plot(shap_values, X_test_clean, show=False)
+st.pyplot(plt.gcf())
 
-results = []
-
-# SARIMAX
-model_sarimax = SARIMAX(y_train, order=(1,1,1), seasonal_order=(1,1,1,7))
-model_sarimax_fit = model_sarimax.fit(disp=False)
-pred_sarimax = model_sarimax_fit.forecast(len(y_test))
-
-# XGBoost
-model_xgb = XGBRegressor(n_estimators=300)
-model_xgb.fit(X_train,y_train)
-pred_xgb = model_xgb.predict(X_test)
-
-# LightGBM
-model_lgb = LGBMRegressor()
-model_lgb.fit(X_train,y_train)
-pred_lgb = model_lgb.predict(X_test)
-
-def evaluate(name, y_true, y_pred):
-    mae = mean_absolute_error(y_true,y_pred)
-    rmse = np.sqrt(mean_squared_error(y_true,y_pred))
-    mape = np.mean(np.abs((y_true-y_pred)/y_true))*100
-    r2 = r2_score(y_true,y_pred)
-    results.append([name,mae,rmse,mape,r2])
-
-evaluate("SARIMAX",y_test,pred_sarimax)
-evaluate("XGBoost",y_test,pred_xgb)
-evaluate("LightGBM",y_test,pred_lgb)
-
-results_df = pd.DataFrame(results,
-        columns=["Model","MAE","RMSE","MAPE","R2"])
-
-st.write(results_df)
-
-# -------------------------------
-# Walk Forward Validation
-# -------------------------------
-
-st.subheader("Walk Forward Validation")
-
-tscv = TimeSeriesSplit(n_splits=5)
-mae_scores = []
-
-for train_idx,test_idx in tscv.split(X):
-    X_tr, X_te = X.iloc[train_idx], X.iloc[test_idx]
-    y_tr, y_te = y.iloc[train_idx], y.iloc[test_idx]
-    model = XGBRegressor()
-    model.fit(X_tr,y_tr)
-    pred = model.predict(X_te)
-    mae_scores.append(mean_absolute_error(y_te,pred))
-
-st.write("Average Walk Forward MAE:", np.mean(mae_scores))
-
-# -------------------------------
-# SHAP Explainability
-# -------------------------------
-
-st.subheader("SHAP Feature Importance")
-
-explainer = shap.TreeExplainer(model_xgb)
-shap_values = explainer.shap_values(X_test)
-
-fig2 = plt.figure()
-shap.summary_plot(shap_values,X_test,show=False)
-st.pyplot(fig2)
-
-st.success("Research Pipeline Complete")
+st.success("Full Leakage Analysis Complete")
