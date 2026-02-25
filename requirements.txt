@@ -8,6 +8,8 @@ statsmodels
 scipy
 xgboost
 lightgbm
+catboost
 shap
 joblib
 openpyxl
+tensorflow
