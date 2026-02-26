@@ -16,7 +16,6 @@ from statsmodels.tsa.statespace.sarimax import SARIMAX
 
 from xgboost import XGBRegressor
 from lightgbm import LGBMRegressor
-from catboost import CatBoostRegressor
 import shap
 
 import tensorflow as tf
