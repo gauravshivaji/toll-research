@@ -129,7 +129,7 @@ models = {
     "SVR": SVR(),
     "XGBoost": XGBRegressor(n_estimators=300, random_state=42),
     "LightGBM": LGBMRegressor(),
-    "CatBoost": CatBoostRegressor(verbose=0)
+  
 }
 
 results = []
