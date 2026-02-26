@@ -224,7 +224,121 @@ for train_idx,test_idx in tscv.split(X):
     mae_scores.append(mean_absolute_error(y_te,pred))
 
 st.write("Average Walk Forward MAE:",np.mean(mae_scores))
+# ============================================================
+# HYBRID LINEAR + XGBOOST RESIDUAL MODEL (Novel Contribution)
+# ============================================================
 
+st.header("Hybrid Linear-Boosted Forecasting Model")
+
+# Step 1: Fit Ridge (Base Linear Model)
+ridge_model = Ridge()
+ridge_model.fit(X_train, y_train)
+
+ridge_pred_train = ridge_model.predict(X_train)
+ridge_pred_test = ridge_model.predict(X_test)
+
+# Step 2: Compute Residuals
+residual_train = y_train - ridge_pred_train
+
+# Step 3: Fit XGBoost on Residuals
+xgb_residual = XGBRegressor(n_estimators=200, max_depth=4, random_state=42)
+xgb_residual.fit(X_train, residual_train)
+
+residual_pred_test = xgb_residual.predict(X_test)
+
+# Step 4: Final Hybrid Prediction
+hybrid_pred = ridge_pred_test + residual_pred_test
+
+# Metrics
+hybrid_mae = mean_absolute_error(y_test, hybrid_pred)
+hybrid_rmse = np.sqrt(mean_squared_error(y_test, hybrid_pred))
+hybrid_r2 = r2_score(y_test, hybrid_pred)
+
+st.write("Hybrid MAE:", hybrid_mae)
+st.write("Hybrid RMSE:", hybrid_rmse)
+st.write("Hybrid R2:", hybrid_r2)
+# ============================================================
+# TRAFFIC SURGE INDEX (TSI)
+# ============================================================
+
+st.header("Traffic Surge Index (Holiday Impact)")
+
+baseline = df[df["Is_Holiday"]==0]["Total_Vehicles"].mean()
+holiday_mean = df[df["Is_Holiday"]==1]["Total_Vehicles"].mean()
+
+TSI = (holiday_mean - baseline) / baseline
+
+st.write("Baseline Traffic:", baseline)
+st.write("Holiday Traffic:", holiday_mean)
+st.write("Traffic Surge Index (TSI):", TSI)
+
+# ============================================================
+# REGIME DETECTION USING KMEANS
+# ============================================================
+
+from sklearn.cluster import KMeans
+from sklearn.preprocessing import StandardScaler
+
+st.header("Regime Detection (Traffic States)")
+
+regime_features = df[["Total_Vehicles","Lag_1","Lag_7","Is_Weekend","Is_Holiday"]]
+
+scaler = StandardScaler()
+scaled = scaler.fit_transform(regime_features)
+
+kmeans = KMeans(n_clusters=3, random_state=42)
+df["Regime"] = kmeans.fit_predict(scaled)
+
+st.write(df["Regime"].value_counts())
+
+# Visualize regimes
+plt.figure(figsize=(12,4))
+plt.scatter(df["Date"], df["Total_Vehicles"], c=df["Regime"])
+plt.title("Traffic Regimes")
+st.pyplot(plt.gcf())
+
+
+# ============================================================
+# QUANTILE REGRESSION (Prediction Intervals)
+# ============================================================
+
+st.header("Prediction Intervals (Quantile LightGBM)")
+
+lower_model = LGBMRegressor(objective="quantile", alpha=0.1)
+upper_model = LGBMRegressor(objective="quantile", alpha=0.9)
+
+lower_model.fit(X_train, y_train)
+upper_model.fit(X_train, y_train)
+
+lower_pred = lower_model.predict(X_test)
+upper_pred = upper_model.predict(X_test)
+
+plt.figure(figsize=(10,4))
+plt.plot(y_test.values, label="Actual")
+plt.plot(lower_pred, label="Lower 10%")
+plt.plot(upper_pred, label="Upper 90%")
+plt.legend()
+st.pyplot(plt.gcf())
+
+
+# Cohen's d
+mean_diff = weekend.mean() - weekday.mean()
+pooled_std = np.sqrt((weekend.std()**2 + weekday.std()**2)/2)
+cohen_d = mean_diff / pooled_std
+
+st.write("Cohen's d:", cohen_d)
+
+
+# ============================================================
+# ECONOMIC IMPACT ANALYSIS
+# ============================================================
+
+st.header("Economic Impact Estimation")
+
+avg_toll = 110  # change if needed
+daily_revenue_error = hybrid_mae * avg_toll
+
+st.write("Average Daily Revenue Forecast Error (₹):", daily_revenue_error)
 # -------------------------
 # SHAP
 # -------------------------
