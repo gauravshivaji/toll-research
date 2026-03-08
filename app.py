@@ -100,7 +100,7 @@ if st.button("Predict Traffic"):
 
     # Train best model (Ridge performed best)
     best_model = Ridge()
-    best_model.fit(X_train, y_train)
+    best_model.fit(X, y)
 
     predicted_traffic = best_model.predict(future_df)[0]
 
