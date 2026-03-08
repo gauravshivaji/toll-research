@@ -6,29 +6,26 @@ from datetime import datetime, timedelta
 
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.model_selection import TimeSeriesSplit
-from sklearn.linear_model import LinearRegression, Ridge
+from sklearn.linear_model import Ridge
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.svm import SVR
 
 from scipy.stats import ttest_ind
 from statsmodels.tsa.stattools import adfuller
-from statsmodels.tsa.seasonal import seasonal_decompose
-from statsmodels.tsa.statespace.sarimax import SARIMAX
 
 from xgboost import XGBRegressor
 from lightgbm import LGBMRegressor
 import shap
 
-import tensorflow as tf
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import LSTM, Dense
+from sklearn.cluster import KMeans
+from sklearn.preprocessing import StandardScaler
 
 st.set_page_config(layout="wide")
-st.title("Toll Traffic Research Dashboard (Full Publication Version)")
+st.title("🚦 Toll Traffic Research Dashboard")
 
-# -------------------------
+# ======================================================
 # Upload Dataset
-# -------------------------
+# ======================================================
 
 uploaded_file = st.file_uploader("Upload Dataset (CSV/Excel)")
 
@@ -43,9 +40,9 @@ else:
 df["Date"] = pd.to_datetime(df["Date"], dayfirst=True)
 df = df.sort_values("Date").reset_index(drop=True)
 
-# -------------------------
+# ======================================================
 # Feature Engineering
-# -------------------------
+# ======================================================
 
 df["DayOfWeek"] = df["Date"].dt.dayofweek
 df["Month"] = df["Date"].dt.month
@@ -60,17 +57,14 @@ for roll in [7,14,30]:
 
 df = df.dropna().reset_index(drop=True)
 
-st.subheader("Basic Statistics")
+st.subheader("Dataset Statistics")
 st.write(df[["Total_Vehicles","Total_Revenue"]].describe())
-# ============================================================
-# FUTURE TRAVEL TRAFFIC PREDICTION (USER INPUT)
-# ============================================================
 
-# -------------------------
+# ======================================================
 # Hypothesis Testing
-# -------------------------
+# ======================================================
 
-st.header("Weekend Effect Hypothesis Test")
+st.header("Weekend Effect Test")
 
 weekend = df[df["Is_Weekend"]==1]["Total_Vehicles"]
 weekday = df[df["Is_Weekend"]==0]["Total_Vehicles"]
@@ -81,9 +75,9 @@ st.write("Mean Weekend:", weekend.mean())
 st.write("Mean Weekday:", weekday.mean())
 st.write("p-value:", p_val)
 
-# -------------------------
+# ======================================================
 # ADF Test
-# -------------------------
+# ======================================================
 
 st.header("ADF Stationarity Test")
 
@@ -91,19 +85,9 @@ adf = adfuller(df["Total_Vehicles"])
 st.write("ADF Statistic:", adf[0])
 st.write("p-value:", adf[1])
 
-# -------------------------
-# Seasonal Decomposition
-# -------------------------
-
-st.header("Seasonal Decomposition")
-
-decomp = seasonal_decompose(df["Total_Vehicles"], period=7)
-fig = decomp.plot()
-st.pyplot(fig)
-
-# -------------------------
-# Prepare Clean Features (No Leakage)
-# -------------------------
+# ======================================================
+# Feature Matrix
+# ======================================================
 
 leakage_cols = [
     "Car_Count","Bus_Count","LCV_Count","MAV_Count",
@@ -120,237 +104,101 @@ split = int(len(df)*0.8)
 X_train, X_test = X.iloc[:split], X.iloc[split:]
 y_train, y_test = y.iloc[:split], y.iloc[split:]
 
-# -------------------------
-# Multi-Model Comparison
-# -------------------------
+# ======================================================
+# Train Models (Cached for Speed)
+# ======================================================
 
-st.header("Multi-Model Comparison")
+@st.cache_resource
+def train_models(X_train, y_train):
 
-models = {
-    "Linear Regression": LinearRegression(),
-    "Ridge": Ridge(),
-    "Random Forest": RandomForestRegressor(n_estimators=200, random_state=42),
-    "SVR": SVR(),
-    "XGBoost": XGBRegressor(n_estimators=300, random_state=42),
-    "LightGBM": LGBMRegressor(),
-  
-}
+    models = {
+        "Ridge": Ridge(),
+        "RandomForest": RandomForestRegressor(n_estimators=200, random_state=42),
+        "SVR": SVR(),
+        "XGBoost": XGBRegressor(n_estimators=300),
+        "LightGBM": LGBMRegressor()
+    }
+
+    trained = {}
+
+    for name, model in models.items():
+        model.fit(X_train, y_train)
+        trained[name] = model
+
+    return trained
+
+trained_models = train_models(X_train, y_train)
+
+# ======================================================
+# Model Evaluation
+# ======================================================
+
+st.header("Model Comparison")
 
 results = []
 
-for name, model in models.items():
-    model.fit(X_train, y_train)
+for name, model in trained_models.items():
+
     preds = model.predict(X_test)
 
     mae = mean_absolute_error(y_test,preds)
     rmse = np.sqrt(mean_squared_error(y_test,preds))
-    mape = np.mean(np.abs((y_test - preds)/y_test))*100
     r2 = r2_score(y_test,preds)
 
-    results.append([name,mae,rmse,mape,r2])
-
-# SARIMAX
-sarimax = SARIMAX(y_train, order=(1,1,1), seasonal_order=(1,1,1,7))
-sarimax_fit = sarimax.fit(disp=False)
-sarimax_pred = sarimax_fit.forecast(len(y_test))
-
-mae = mean_absolute_error(y_test,sarimax_pred)
-rmse = np.sqrt(mean_squared_error(y_test,sarimax_pred))
-mape = np.mean(np.abs((y_test - sarimax_pred)/y_test))*100
-r2 = r2_score(y_test,sarimax_pred)
-
-results.append(["SARIMAX",mae,rmse,mape,r2])
-
-# -------------------------
-# LSTM Model
-# -------------------------
-
-def create_lstm_dataset(series, window=14):
-    X_lstm, y_lstm = [], []
-    for i in range(len(series)-window):
-        X_lstm.append(series[i:i+window])
-        y_lstm.append(series[i+window])
-    return np.array(X_lstm), np.array(y_lstm)
-
-series = df["Total_Vehicles"].values
-X_lstm, y_lstm = create_lstm_dataset(series)
-
-split_lstm = int(len(X_lstm)*0.8)
-
-X_train_lstm = X_lstm[:split_lstm]
-X_test_lstm = X_lstm[split_lstm:]
-y_train_lstm = y_lstm[:split_lstm]
-y_test_lstm = y_lstm[split_lstm:]
-
-X_train_lstm = X_train_lstm.reshape((X_train_lstm.shape[0],X_train_lstm.shape[1],1))
-X_test_lstm = X_test_lstm.reshape((X_test_lstm.shape[0],X_test_lstm.shape[1],1))
-
-model_lstm = Sequential()
-model_lstm.add(LSTM(50,activation="relu",input_shape=(14,1)))
-model_lstm.add(Dense(1))
-model_lstm.compile(optimizer="adam",loss="mse")
-
-model_lstm.fit(X_train_lstm,y_train_lstm,epochs=10,verbose=0)
-
-lstm_pred = model_lstm.predict(X_test_lstm)
-
-mae = mean_absolute_error(y_test_lstm,lstm_pred)
-rmse = np.sqrt(mean_squared_error(y_test_lstm,lstm_pred))
-mape = np.mean(np.abs((y_test_lstm - lstm_pred.flatten())/y_test_lstm))*100
-r2 = r2_score(y_test_lstm,lstm_pred)
-
-results.append(["LSTM",mae,rmse,mape,r2])
-
-# -------------------------
-# Show Results
-# -------------------------
+    results.append([name,mae,rmse,r2])
 
 results_df = pd.DataFrame(results,
-        columns=["Model","MAE","RMSE","MAPE","R2"])
+        columns=["Model","MAE","RMSE","R2"])
 
 st.write(results_df.sort_values("R2",ascending=False))
 
-# -------------------------
+# ======================================================
 # Walk Forward Validation
-# -------------------------
+# ======================================================
 
-st.header("Walk Forward Validation (XGBoost)")
+st.header("Walk Forward Validation")
 
 tscv = TimeSeriesSplit(n_splits=5)
 mae_scores = []
 
 for train_idx,test_idx in tscv.split(X):
+
     X_tr, X_te = X.iloc[train_idx], X.iloc[test_idx]
     y_tr, y_te = y.iloc[train_idx], y.iloc[test_idx]
+
     model = XGBRegressor()
     model.fit(X_tr,y_tr)
+
     pred = model.predict(X_te)
+
     mae_scores.append(mean_absolute_error(y_te,pred))
 
-st.write("Average Walk Forward MAE:",np.mean(mae_scores))
-# ============================================================
-# HYBRID LINEAR + XGBOOST RESIDUAL MODEL (Novel Contribution)
-# ============================================================
+st.write("Average Walk Forward MAE:", np.mean(mae_scores))
 
-st.header("Hybrid Linear-Boosted Forecasting Model")
+# ======================================================
+# Regime Detection
+# ======================================================
 
-# Step 1: Fit Ridge (Base Linear Model)
-ridge_model = Ridge()
-ridge_model.fit(X_train, y_train)
-
-ridge_pred_train = ridge_model.predict(X_train)
-ridge_pred_test = ridge_model.predict(X_test)
-
-# Step 2: Compute Residuals
-residual_train = y_train - ridge_pred_train
-
-# Step 3: Fit XGBoost on Residuals
-xgb_residual = XGBRegressor(n_estimators=200, max_depth=4, random_state=42)
-xgb_residual.fit(X_train, residual_train)
-
-residual_pred_test = xgb_residual.predict(X_test)
-
-# Step 4: Final Hybrid Prediction
-hybrid_pred = ridge_pred_test + residual_pred_test
-
-# Metrics
-hybrid_mae = mean_absolute_error(y_test, hybrid_pred)
-hybrid_rmse = np.sqrt(mean_squared_error(y_test, hybrid_pred))
-hybrid_r2 = r2_score(y_test, hybrid_pred)
-
-st.write("Hybrid MAE:", hybrid_mae)
-st.write("Hybrid RMSE:", hybrid_rmse)
-st.write("Hybrid R2:", hybrid_r2)
-# ============================================================
-# TRAFFIC SURGE INDEX (TSI)
-# ============================================================
-
-st.header("Traffic Surge Index (Holiday Impact)")
-
-baseline = df[df["Is_Holiday"]==0]["Total_Vehicles"].mean()
-holiday_mean = df[df["Is_Holiday"]==1]["Total_Vehicles"].mean()
-
-TSI = (holiday_mean - baseline) / baseline
-
-st.write("Baseline Traffic:", baseline)
-st.write("Holiday Traffic:", holiday_mean)
-st.write("Traffic Surge Index (TSI):", TSI)
-
-# ============================================================
-# REGIME DETECTION USING KMEANS
-# ============================================================
-
-from sklearn.cluster import KMeans
-from sklearn.preprocessing import StandardScaler
-
-st.header("Regime Detection (Traffic States)")
+st.header("Traffic Regimes")
 
 regime_features = df[["Total_Vehicles","Lag_1","Lag_7","Is_Weekend","Is_Holiday"]]
 
-scaler = StandardScaler()
-scaled = scaler.fit_transform(regime_features)
+scaled = StandardScaler().fit_transform(regime_features)
 
 kmeans = KMeans(n_clusters=3, random_state=42)
 df["Regime"] = kmeans.fit_predict(scaled)
 
-st.write(df["Regime"].value_counts())
-
-# Visualize regimes
 plt.figure(figsize=(12,4))
 plt.scatter(df["Date"], df["Total_Vehicles"], c=df["Regime"])
-plt.title("Traffic Regimes")
 st.pyplot(plt.gcf())
 
+# ======================================================
+# SHAP Analysis
+# ======================================================
 
-# ============================================================
-# QUANTILE REGRESSION (Prediction Intervals)
-# ============================================================
+st.header("Feature Importance (SHAP)")
 
-st.header("Prediction Intervals (Quantile LightGBM)")
-
-lower_model = LGBMRegressor(objective="quantile", alpha=0.1)
-upper_model = LGBMRegressor(objective="quantile", alpha=0.9)
-
-lower_model.fit(X_train, y_train)
-upper_model.fit(X_train, y_train)
-
-lower_pred = lower_model.predict(X_test)
-upper_pred = upper_model.predict(X_test)
-
-plt.figure(figsize=(10,4))
-plt.plot(y_test.values, label="Actual")
-plt.plot(lower_pred, label="Lower 10%")
-plt.plot(upper_pred, label="Upper 90%")
-plt.legend()
-st.pyplot(plt.gcf())
-
-
-# Cohen's d
-mean_diff = weekend.mean() - weekday.mean()
-pooled_std = np.sqrt((weekend.std()**2 + weekday.std()**2)/2)
-cohen_d = mean_diff / pooled_std
-
-st.write("Cohen's d:", cohen_d)
-
-
-# ============================================================
-# ECONOMIC IMPACT ANALYSIS
-# ============================================================
-
-st.header("Economic Impact Estimation")
-
-avg_toll = 110  # change if needed
-daily_revenue_error = hybrid_mae * avg_toll
-
-st.write("Average Daily Revenue Forecast Error (₹):", daily_revenue_error)
-# -------------------------
-# SHAP
-# -------------------------
-
-st.header("SHAP Feature Importance (XGBoost)")
-
-xgb_model = XGBRegressor()
-xgb_model.fit(X_train,y_train)
+xgb_model = trained_models["XGBoost"]
 
 explainer = shap.TreeExplainer(xgb_model)
 shap_values = explainer.shap_values(X_test)
@@ -359,57 +207,61 @@ plt.figure()
 shap.summary_plot(shap_values,X_test,show=False)
 st.pyplot(plt.gcf())
 
-st.success("Full Research Pipeline Complete")
+# ======================================================
+# FUTURE TRAFFIC PREDICTION
+# ======================================================
 
-
-# ============================================================
-# FUTURE TRAVEL TRAFFIC PREDICTION
-# ============================================================
-
-
-
-st.header("Future Travel Traffic Prediction")
+st.header("Future Travel Prediction")
 
 today = datetime.today().date()
 max_date = today + timedelta(days=60)
 
-travel_date = st.date_input(
-    "Select your travel date (within next 2 months)",
-    min_value=today,
-    max_value=max_date
-)
+with st.form("prediction_form"):
 
-if st.button("Predict Traffic"):
+    travel_date = st.date_input(
+        "Select travel date",
+        min_value=today,
+        max_value=max_date
+    )
 
-    # Train model on full dataset
-    travel_model = Ridge()
-    travel_model.fit(X, y)
+    submitted = st.form_submit_button("Predict Traffic")
 
-    future_features = pd.DataFrame({
-        "DayOfWeek":[travel_date.weekday()],
-        "Month":[travel_date.month],
-        "DayOfYear":[travel_date.timetuple().tm_yday],
-        "Time_Index":[len(df)+1],
-        "Lag_1":[df["Total_Vehicles"].iloc[-1]],
-        "Lag_7":[df["Total_Vehicles"].iloc[-7]],
-        "Lag_14":[df["Total_Vehicles"].iloc[-14]],
-        "Lag_30":[df["Total_Vehicles"].iloc[-30]],
-        "Rolling_7":[df["Total_Vehicles"].tail(7).mean()],
-        "Rolling_14":[df["Total_Vehicles"].tail(14).mean()],
-        "Rolling_30":[df["Total_Vehicles"].tail(30).mean()],
-        "Is_Weekend":[1 if travel_date.weekday() >= 5 else 0],
-        "Is_Holiday":[0]
-    })
+if submitted:
 
-    predicted_traffic = travel_model.predict(future_features)[0]
+    model = trained_models["Ridge"]
 
-    avg_traffic = df["Total_Vehicles"].mean()
+    future_data = {
+        "DayOfWeek": travel_date.weekday(),
+        "Month": travel_date.month,
+        "DayOfYear": travel_date.timetuple().tm_yday,
+        "Time_Index": len(df)+1,
+        "Lag_1": df["Total_Vehicles"].iloc[-1],
+        "Lag_7": df["Total_Vehicles"].iloc[-7],
+        "Lag_14": df["Total_Vehicles"].iloc[-14],
+        "Lag_30": df["Total_Vehicles"].iloc[-30],
+        "Rolling_7": df["Total_Vehicles"].tail(7).mean(),
+        "Rolling_14": df["Total_Vehicles"].tail(14).mean(),
+        "Rolling_30": df["Total_Vehicles"].tail(30).mean(),
+        "Is_Weekend": 1 if travel_date.weekday()>=5 else 0,
+        "Is_Holiday": 0
+    }
 
-    st.subheader(f"Predicted Traffic: {int(predicted_traffic)} vehicles")
+    future_df = pd.DataFrame([future_data])
 
-    if predicted_traffic < avg_traffic * 0.85:
-        st.success("🟢 Low Traffic – Ready to Travel")
-    elif predicted_traffic < avg_traffic * 1.1:
-        st.warning("🟡 Moderate Traffic – Plan Accordingly")
+    # Align columns exactly with training features
+    future_df = future_df.reindex(columns=features, fill_value=0)
+
+    prediction = model.predict(future_df)[0]
+
+    avg = df["Total_Vehicles"].mean()
+
+    st.subheader(f"Predicted Traffic: {int(prediction)} vehicles")
+
+    if prediction < avg*0.85:
+        st.success("🟢 Low Traffic – Safe to Travel")
+    elif prediction < avg*1.1:
+        st.warning("🟡 Moderate Traffic – Plan Ahead")
     else:
-        st.error("🔴 High Traffic – Consider Avoiding Peak Hours")
+        st.error("🔴 Heavy Traffic – Avoid Peak Hours")
+
+st.success("Dashboard Ready")
