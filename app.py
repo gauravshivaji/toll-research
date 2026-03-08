@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+from datetime import datetime, timedelta
 
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.model_selection import TimeSeriesSplit
@@ -61,7 +62,59 @@ df = df.dropna().reset_index(drop=True)
 
 st.subheader("Basic Statistics")
 st.write(df[["Total_Vehicles","Total_Revenue"]].describe())
+# ============================================================
+# FUTURE TRAVEL TRAFFIC PREDICTION (USER INPUT)
+# ============================================================
 
+
+
+st.header("Future Travel Traffic Prediction")
+
+today = datetime.today()
+max_date = today + timedelta(days=60)
+
+travel_date = st.date_input(
+    "Select your travel date (within next 2 months)",
+    min_value=today,
+    max_value=max_date
+)
+
+if st.button("Predict Traffic"):
+
+    # Create feature row for prediction
+    future_df = pd.DataFrame({
+        "DayOfWeek":[travel_date.weekday()],
+        "Month":[travel_date.month],
+        "DayOfYear":[travel_date.timetuple().tm_yday],
+        "Time_Index":[len(df)+1],
+        "Lag_1":[df["Total_Vehicles"].iloc[-1]],
+        "Lag_7":[df["Total_Vehicles"].iloc[-7]],
+        "Lag_14":[df["Total_Vehicles"].iloc[-14]],
+        "Lag_30":[df["Total_Vehicles"].iloc[-30]],
+        "Rolling_7":[df["Total_Vehicles"].tail(7).mean()],
+        "Rolling_14":[df["Total_Vehicles"].tail(14).mean()],
+        "Rolling_30":[df["Total_Vehicles"].tail(30).mean()],
+        "Is_Weekend":[1 if travel_date.weekday()>=5 else 0],
+        "Is_Holiday":[0]  # can extend later with holiday list
+    })
+
+    # Train best model (Ridge performed best)
+    best_model = Ridge()
+    best_model.fit(X_train, y_train)
+
+    predicted_traffic = best_model.predict(future_df)[0]
+
+    avg_traffic = df["Total_Vehicles"].mean()
+
+    st.subheader(f"Predicted Traffic: {int(predicted_traffic)} vehicles")
+
+    # Travel suggestion
+    if predicted_traffic < avg_traffic*0.85:
+        st.success("🟢 Low Traffic – Ready to Travel")
+    elif predicted_traffic < avg_traffic*1.1:
+        st.warning("🟡 Moderate Traffic – Plan Accordingly")
+    else:
+        st.error("🔴 Higher than Average Traffic – Consider Avoiding Peak Hours")
 # -------------------------
 # Hypothesis Testing
 # -------------------------
