@@ -66,11 +66,15 @@ st.write(df[["Total_Vehicles","Total_Revenue"]].describe())
 # FUTURE TRAVEL TRAFFIC PREDICTION (USER INPUT)
 # ============================================================
 
+# ============================================================
+# FUTURE TRAVEL TRAFFIC PREDICTION
+# ============================================================
+
 
 
 st.header("Future Travel Traffic Prediction")
 
-today = datetime.today()
+today = datetime.today().date()
 max_date = today + timedelta(days=60)
 
 travel_date = st.date_input(
@@ -81,8 +85,11 @@ travel_date = st.date_input(
 
 if st.button("Predict Traffic"):
 
-    # Create feature row for prediction
-    future_df = pd.DataFrame({
+    # Train model on full dataset
+    travel_model = Ridge()
+    travel_model.fit(X, y)
+
+    future_features = pd.DataFrame({
         "DayOfWeek":[travel_date.weekday()],
         "Month":[travel_date.month],
         "DayOfYear":[travel_date.timetuple().tm_yday],
@@ -94,27 +101,22 @@ if st.button("Predict Traffic"):
         "Rolling_7":[df["Total_Vehicles"].tail(7).mean()],
         "Rolling_14":[df["Total_Vehicles"].tail(14).mean()],
         "Rolling_30":[df["Total_Vehicles"].tail(30).mean()],
-        "Is_Weekend":[1 if travel_date.weekday()>=5 else 0],
-        "Is_Holiday":[0]  # can extend later with holiday list
+        "Is_Weekend":[1 if travel_date.weekday() >= 5 else 0],
+        "Is_Holiday":[0]
     })
 
-    # Train best model (Ridge performed best)
-    best_model = Ridge()
-    best_model.fit(X, y)
-
-    predicted_traffic = best_model.predict(future_df)[0]
+    predicted_traffic = travel_model.predict(future_features)[0]
 
     avg_traffic = df["Total_Vehicles"].mean()
 
     st.subheader(f"Predicted Traffic: {int(predicted_traffic)} vehicles")
 
-    # Travel suggestion
-    if predicted_traffic < avg_traffic*0.85:
+    if predicted_traffic < avg_traffic * 0.85:
         st.success("🟢 Low Traffic – Ready to Travel")
-    elif predicted_traffic < avg_traffic*1.1:
+    elif predicted_traffic < avg_traffic * 1.1:
         st.warning("🟡 Moderate Traffic – Plan Accordingly")
     else:
-        st.error("🔴 Higher than Average Traffic – Consider Avoiding Peak Hours")
+        st.error("🔴 High Traffic – Consider Avoiding Peak Hours")
 # -------------------------
 # Hypothesis Testing
 # -------------------------
