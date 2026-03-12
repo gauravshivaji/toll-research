@@ -79,11 +79,11 @@ st.write("Mean Weekday:", weekday.mean())
 # ADF Test
 # ======================================================
 
-st.header("ADF Stationarity Test")
+#st.header("ADF Stationarity Test")
 
-adf = adfuller(df["Total_Vehicles"])
-st.write("ADF Statistic:", adf[0])
-st.write("p-value:", adf[1])
+#adf = adfuller(df["Total_Vehicles"])
+#st.write("ADF Statistic:", adf[0])
+#st.write("p-value:", adf[1])
 
 # ======================================================
 # Feature Matrix
