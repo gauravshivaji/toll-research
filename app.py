@@ -9,6 +9,7 @@ from sklearn.model_selection import TimeSeriesSplit
 from sklearn.linear_model import Ridge
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.svm import SVR
+from sklearn.linear_model import LinearRegression
 
 from scipy.stats import ttest_ind
 from statsmodels.tsa.stattools import adfuller
@@ -112,6 +113,7 @@ y_train, y_test = y.iloc[:split], y.iloc[split:]
 def train_models(X_train, y_train):
 
     models = {
+        "LinearRegression": LinearRegression(),
         "Ridge": Ridge(),
         "RandomForest": RandomForestRegressor(n_estimators=200, random_state=42),
         "SVR": SVR(),
