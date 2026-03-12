@@ -73,7 +73,7 @@ t_stat, p_val = ttest_ind(weekend,weekday)
 
 st.write("Mean Weekend:", weekend.mean())
 st.write("Mean Weekday:", weekday.mean())
-st.write("p-value:", p_val)
+#st.write("p-value:", p_val)
 
 # ======================================================
 # ADF Test
