@@ -192,17 +192,21 @@ df["Regime"] = kmeans.fit_predict(scaled)
 
 plt.figure(figsize=(12,4))
 
-scatter = plt.scatter(
-    df["Date"],
-    df["Total_Vehicles"],
-    c=df["Regime"],
-    cmap="viridis"
-)
+colors = ["red","blue","green"]
 
-plt.colorbar(scatter, label="Traffic Regime")
+for i in range(3):
+    subset = df[df["Regime"] == i]
+
+    plt.scatter(
+        subset["Date"],
+        subset["Total_Vehicles"],
+        color=colors[i],
+        label=f"Regime {i}"
+    )
 
 plt.xlabel("Date")
 plt.ylabel("Total Vehicles")
+plt.legend(title="Traffic Regime")
 
 st.pyplot(plt.gcf())
 
