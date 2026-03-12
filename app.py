@@ -191,7 +191,19 @@ kmeans = KMeans(n_clusters=3, random_state=42)
 df["Regime"] = kmeans.fit_predict(scaled)
 
 plt.figure(figsize=(12,4))
-plt.scatter(df["Date"], df["Total_Vehicles"], c=df["Regime"])
+
+scatter = plt.scatter(
+    df["Date"],
+    df["Total_Vehicles"],
+    c=df["Regime"],
+    cmap="viridis"
+)
+
+plt.colorbar(scatter, label="Traffic Regime")
+
+plt.xlabel("Date")
+plt.ylabel("Total Vehicles")
+
 st.pyplot(plt.gcf())
 
 # ======================================================
