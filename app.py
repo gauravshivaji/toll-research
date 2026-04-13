@@ -1,4 +1,4 @@
-```python
+
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -300,4 +300,3 @@ if submitted:
         st.success("📈 High Revenue Expected")
 
 st.success("Dashboard Ready 🚀")
-```
