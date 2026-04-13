@@ -1,3 +1,4 @@
+```python
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -74,17 +75,6 @@ t_stat, p_val = ttest_ind(weekend,weekday)
 
 st.write("Mean Weekend:", weekend.mean())
 st.write("Mean Weekday:", weekday.mean())
-#st.write("p-value:", p_val)
-
-# ======================================================
-# ADF Test
-# ======================================================
-
-#st.header("ADF Stationarity Test")
-
-#adf = adfuller(df["Total_Vehicles"])
-#st.write("ADF Statistic:", adf[0])
-#st.write("p-value:", adf[1])
 
 # ======================================================
 # Feature Matrix
@@ -100,13 +90,15 @@ features = [col for col in df.columns
 
 X = df[features]
 y = df["Total_Vehicles"]
+y_rev = df["Total_Revenue"]
 
 split = int(len(df)*0.8)
 X_train, X_test = X.iloc[:split], X.iloc[split:]
 y_train, y_test = y.iloc[:split], y.iloc[split:]
+y_rev_train, y_rev_test = y_rev.iloc[:split], y_rev.iloc[split:]
 
 # ======================================================
-# Train Models (Cached for Speed)
+# Train Models (Original)
 # ======================================================
 
 @st.cache_resource
@@ -130,6 +122,18 @@ def train_models(X_train, y_train):
     return trained
 
 trained_models = train_models(X_train, y_train)
+
+# ======================================================
+# NEW: Train Revenue Model (ADDED ONLY)
+# ======================================================
+
+@st.cache_resource
+def train_revenue_model(X_train, y_rev_train):
+    model = XGBRegressor(n_estimators=300)
+    model.fit(X_train, y_rev_train)
+    return model
+
+revenue_model = train_revenue_model(X_train, y_rev_train)
 
 # ======================================================
 # Model Evaluation
@@ -226,7 +230,7 @@ shap.summary_plot(shap_values,X_test,show=False)
 st.pyplot(plt.gcf())
 
 # ======================================================
-# FUTURE TRAFFIC PREDICTION
+# FUTURE TRAFFIC + REVENUE PREDICTION
 # ======================================================
 
 st.header("Future Travel Prediction")
@@ -265,15 +269,14 @@ if submitted:
     }
 
     future_df = pd.DataFrame([future_data])
-
-    # Align columns exactly with training features
     future_df = future_df.reindex(columns=features, fill_value=0)
 
+    # Traffic Prediction
     prediction = model.predict(future_df)[0]
 
-    avg = df["Total_Vehicles"].mean()
+    st.subheader(f"🚗 Predicted Traffic: {int(prediction)} vehicles")
 
-    st.subheader(f"Predicted Traffic: {int(prediction)} vehicles")
+    avg = df["Total_Vehicles"].mean()
 
     if prediction < avg*0.85:
         st.success("🟢 Low Traffic – Safe to Travel")
@@ -282,4 +285,19 @@ if submitted:
     else:
         st.error("🔴 Heavy Traffic – Avoid Peak Hours")
 
-st.success("Dashboard Ready")
+    # ================= NEW REVENUE BLOCK =================
+    revenue_pred = revenue_model.predict(future_df)[0]
+
+    st.subheader(f"💰 Predicted Revenue: ₹{int(revenue_pred):,}")
+
+    avg_rev = df["Total_Revenue"].mean()
+
+    if revenue_pred < avg_rev*0.85:
+        st.info("📉 Low Revenue Day")
+    elif revenue_pred < avg_rev*1.1:
+        st.warning("📊 Average Revenue Day")
+    else:
+        st.success("📈 High Revenue Expected")
+
+st.success("Dashboard Ready 🚀")
+```
