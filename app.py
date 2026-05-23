@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -286,6 +285,7 @@ if submitted:
         st.error("🔴 Heavy Traffic – Avoid Peak Hours")
 
     # ================= NEW REVENUE BLOCK =================
+    # (Note: Fixed target naming to match variables defined above)
     revenue_pred = revenue_model.predict(future_df)[0]
 
     st.subheader(f"💰 Predicted Revenue: ₹{int(revenue_pred):,}")
@@ -298,5 +298,112 @@ if submitted:
         st.warning("📊 Average Revenue Day")
     else:
         st.success("📈 High Revenue Expected")
+
+
+# ======================================================
+# NEW ADDITION: 7-DAY MULTI-DAY FORECAST SECTION
+# ======================================================
+
+st.header("🔮 Next 7 Days Continuous Forecast")
+st.markdown("Select a start date from the calendar to project traffic and revenue sequentially for the next 7 days.")
+
+# Dynamic base date defaults to day after last log in file if it exists, otherwise today
+last_data_date = df["Date"].max().date() if "Date" in df.columns else datetime.today().date()
+default_start_date = last_data_date + timedelta(days=1)
+
+with st.form("multi_day_form"):
+    start_date = st.date_input(
+        "Select Forecast Start Date", 
+        value=default_start_date
+    )
+    multi_submitted = st.form_submit_button("Generate 7-Day Forecast")
+
+if multi_submitted:
+    # Use Ridge for consistency with your single prediction segment
+    traffic_model = trained_models["Ridge"]
+    
+    # We maintain a dynamic array list copies of historical vehicles to slide forward
+    history_vehicles = list(df["Total_Vehicles"].values)
+    forecast_results = []
+    
+    current_time_index = len(df)
+    
+    # Generate days sequentially
+    for i in range(7):
+        target_day = start_date + timedelta(days=i)
+        
+        # Pull lags progressively updating dynamically from historical and previously generated predictions
+        lag1 = history_vehicles[-1]
+        lag7 = history_vehicles[-7] if len(history_vehicles) >= 7 else historical_vehicles[-1]
+        lag14 = history_vehicles[-14] if len(history_vehicles) >= 14 else historical_vehicles[-1]
+        lag30 = history_vehicles[-30] if len(history_vehicles) >= 30 else historical_vehicles[-1]
+        
+        # Calculate true rolling windows incorporating previous loops
+        roll7 = np.mean(history_vehicles[-7:])
+        roll14 = np.mean(history_vehicles[-14:])
+        roll30 = np.mean(history_vehicles[-30:])
+        
+        # Package input structure exactly matching existing features matrices
+        step_features = {
+            "DayOfWeek": target_day.weekday(),
+            "Month": target_day.month,
+            "DayOfYear": target_day.timetuple().tm_yday,
+            "Time_Index": current_time_index + i,
+            "Lag_1": lag1,
+            "Lag_7": lag7,
+            "Lag_14": lag14,
+            "Lag_30": lag30,
+            "Rolling_7": roll7,
+            "Rolling_14": roll14,
+            "Rolling_30": roll30,
+            "Is_Weekend": 1 if target_day.weekday() >= 5 else 0,
+            "Is_Holiday": 0
+        }
+        
+        step_df = pd.DataFrame([step_features])
+        step_df = step_df.reindex(columns=features, fill_value=0)
+        
+        # Predict dynamic targets
+        pred_traffic = int(max(0, traffic_model.predict(step_df)[0])) # Floor at zero to prevent negative artifacts
+        pred_revenue = int(max(0, revenue_model.predict(step_df)[0]))
+        
+        # Append latest metrics to history array list so the NEXT loop sees it as a rolling lag
+        history_vehicles.append(pred_traffic)
+        
+        # Collect results row item
+        forecast_results.append({
+            "Date": target_day.strftime('%Y-%m-%d'),
+            "Day": target_day.strftime('%A'),
+            "Predicted Traffic (Vehicles)": f"{pred_traffic:,}",
+            "Predicted Revenue (₹)": f"₹{pred_revenue:,}"
+        })
+        
+    # Render Output Layout
+    out_df = pd.DataFrame(forecast_results)
+    st.dataframe(out_df, use_container_width=True, hide_index=True)
+    
+    # Optional Trend visual metrics chart
+    st.subheader("📈 Visual Breakdown Trends")
+    fig, ax1 = plt.subplots(figsize=(10, 3.5))
+    
+    dates_str = [x["Date"] for x in forecast_results]
+    raw_traffic = [int(x["Predicted Traffic (Vehicles)"].replace(',', '')) for x in forecast_results]
+    raw_revenue = [int(x["Predicted Revenue (₹)"].replace('₹', '').replace(',', '')) for x in forecast_results]
+    
+    color = 'tab:blue'
+    ax1.set_xlabel('Date')
+    ax1.set_ylabel('Traffic Count', color=color)
+    ax1.plot(dates_str, raw_traffic, color=color, marker='o', linewidth=2)
+    ax1.tick_params(axis='y', labelcolor=color)
+    plt.xticks(rotation=15)
+    
+    ax2 = ax1.twinx()  
+    color = 'tab:green'
+    ax2.set_ylabel('Revenue (₹)', color=color)
+    ax2.plot(dates_str, raw_revenue, color=color, marker='s', linestyle='--', linewidth=2)
+    ax2.tick_params(axis='y', labelcolor=color)
+    
+    fig.tight_layout()
+    st.pyplot(fig)
 
 st.success("Dashboard Ready 🚀")
