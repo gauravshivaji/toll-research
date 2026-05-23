@@ -23,19 +23,18 @@ from sklearn.cluster import KMeans
 from sklearn.preprocessing import StandardScaler
 
 st.set_page_config(layout="wide")
-st.title("🚦 Automated Weather-Dynamic Toll Dashboard")
+st.title("🚦 Weather-Dynamic Toll Dashboard (Resilient Network Mode)")
 
 # ======================================================
-# AUTOMATED WEATHER FETCHING ENGINES (OPEN-METEO)
+# NETWORK-RESILIENT WEATHER ENGINES
 # ======================================================
 
-@st.cache_data(show_spinner="Fetching historical weather data for your dataset coordinates...")
+@st.cache_data(show_spinner="Connecting to weather server... (Falling back to local matrix if offline)")
 def download_historical_weather(start_date_str, end_date_str):
     """
-    Automatically downloads true historical daily rainfall values matching 
-    the exact dates of your uploaded dataset.
+    Downloads true historical daily rainfall values. If offline or proxy fails,
+    returns None to trigger the local statistical weather generator.
     """
-    # Coordinates centered near Somatne Phata / Lonavala ghat section
     lat, lon = 18.75, 73.40
     archive_url = (
         f"https://archive-api.open-meteo.com/v1/archive?"
@@ -43,29 +42,49 @@ def download_historical_weather(start_date_str, end_date_str):
         f"&daily=rain_sum&timezone=auto"
     )
     try:
-        res = requests.get(archive_url).json()
+        # Enforce a strict 4-second timeout so the app never freezes if the network is blocked
+        res = requests.get(archive_url, timeout=4.0).json()
         dates = res["daily"]["time"]
         rain = res["daily"]["rain_sum"]
-        # Convert to a clean mapping dictionary
+        st.success("🌐 Successfully synced live historical weather records from Open-Meteo API!")
         return dict(zip(dates, rain))
     except Exception as e:
-        st.error(f"Failed to fetch historical weather data: {e}")
-        return {}
+        # Graceful warning in UI instead of a hard application crash
+        st.warning("⚠️ Weather API timeout/blocked. Automatically generating local historical rainfall matrix...")
+        return None
 
 
 def get_live_weather_forecast():
     """
-    Fetches the upcoming live 7-day weather forecast parameters at runtime.
+    Fetches live upcoming forecast. Falls back to empty dict if offline.
     """
     lat, lon = 18.75, 73.40 
     forecast_url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&daily=rain_sum&timezone=auto"
     try:
-        res = requests.get(forecast_url).json()
+        res = requests.get(forecast_url, timeout=3.0).json()
         forecast_dates = res["daily"]["time"]
         rain_sums = res["daily"]["rain_sum"]
         return dict(zip(forecast_dates, rain_sums))
     except Exception:
         return {}
+
+
+def generate_local_monsoon_profile(month):
+    """
+    Fallback function: Generates a realistic dynamic baseline approximation 
+    of daily rainfall (mm) for the Mumbai-Pune NH-48 corridor if completely offline.
+    """
+    # Typical daily average rainfall patterns for Somatne/Lonavala region
+    monsoon_averages = {
+        6: 15.2,  # June monsoon onset
+        7: 28.4,  # July peak rainfall
+        8: 22.1,  # August heavy downpours
+        9: 10.5,  # September receding monsoon
+    }
+    # Return average rain with a small randomized variation, or 0.0 for dry months
+    if month in monsoon_averages:
+        return max(0.0, monsoon_averages[month] + np.random.uniform(-5.0, 5.0))
+    return 0.0
 
 # ======================================================
 # Upload Dataset
@@ -87,16 +106,24 @@ df = df.sort_values("Date").reset_index(drop=True)
 # ======================================================
 # DYNAMIC WEATHER MERGING AT RUNTIME
 # ======================================================
-# Identify boundaries of the uploaded data to fetch exact historical weather
 min_date_str = df["Date"].min().strftime("%Y-%m-%d")
 max_date_str = df["Date"].max().strftime("%Y-%m-%d")
 
+# Try to fetch live API records
 historical_weather_map = download_historical_weather(min_date_str, max_date_str)
 
-# Map the weather dictionary values straight back to rows using the Date string index
 df["Date_Str"] = df["Date"].dt.strftime("%Y-%m-%d")
-df["Rainfall_mm"] = df["Date_Str"].map(historical_weather_map).fillna(0.0)
-df = df.drop(columns=["Date_Str"])
+df["Month_Temp"] = df["Date"].dt.month
+
+if historical_weather_map is not None:
+    # If API succeeds, map live values
+    df["Rainfall_mm"] = df["Date_Str"].map(historical_weather_map).fillna(0.0)
+else:
+    # IF API TIMED OUT: Compute a synthetic offline monsoon profile so XGBoost still works perfectly!
+    df["Rainfall_mm"] = df["Month_Temp"].apply(generate_local_monsoon_profile)
+
+# Drop temporary columns
+df = df.drop(columns=["Date_Str", "Month_Temp"])
 
 # ======================================================
 # Feature Engineering
@@ -115,7 +142,7 @@ for roll in [7,14,30]:
 
 df = df.dropna().reset_index(drop=True)
 
-st.subheader("Dataset Statistics (With Live API Joined Weather)")
+st.subheader("Dataset Statistics")
 st.write(df[["Total_Vehicles","Total_Revenue", "Rainfall_mm"]].describe())
 
 # ======================================================
@@ -200,11 +227,10 @@ results_df = pd.DataFrame(results, columns=["Model","MAE","RMSE","R2"])
 st.write(results_df.sort_values("R2",ascending=False))
 
 # ======================================================
-# Future Multi-Day Forecast (Fully Automated Runtime Weather)
+# Future Multi-Day Forecast Section
 # ======================================================
 
 st.header("🔮 Next 7 Days Runtime Weather-Aware Forecast")
-st.markdown("This section reads live forecast indicators automatically at runtime to dynamically suppress values during poor weather conditions.")
 
 last_data_date = df["Date"].max().date() if "Date" in df.columns else datetime.today().date()
 default_start_date = last_data_date + timedelta(days=1)
@@ -214,10 +240,9 @@ with st.form("multi_day_form"):
     multi_submitted = st.form_submit_button("Generate Weather-Aware Forecast")
 
 if multi_submitted:
-    # Switch completely to XGBoost to allow non-linear weather penalty processing
     traffic_model = trained_models["XGBoost"]
     
-    # Grab real-time live forecast maps dynamically from runtime API call
+    # Attempt to grab real-time live forecast maps
     live_forecast_weather_map = get_live_weather_forecast()
     
     history_vehicles = list(df["Total_Vehicles"].values)
@@ -228,8 +253,11 @@ if multi_submitted:
         target_day = start_date + timedelta(days=i)
         date_str = target_day.strftime('%Y-%m-%d')
         
-        # Extract live forecasted rain or fall back to 0.0mm if out of API calendar range
-        live_rain = live_forecast_weather_map.get(date_str, 0.0)
+        # If API forecast works, use it. If offline, grab the regional monsoon month fallback
+        if date_str in live_forecast_weather_map:
+            live_rain = live_forecast_weather_map[date_str]
+        else:
+            live_rain = generate_local_monsoon_profile(target_day.month)
         
         lag1 = history_vehicles[-1]
         lag7 = history_vehicles[-7] if len(history_vehicles) >= 7 else history_vehicles[-1]
@@ -256,16 +284,14 @@ if multi_submitted:
             "Rolling_30": roll30,
             "Is_Weekend": 1 if target_day.weekday() >= 5 else 0,
             "Is_Holiday": is_holiday_flag,
-            "Rainfall_mm": live_rain # Fed straight to model features at prediction step
+            "Rainfall_mm": live_rain
         }
         
         step_df = pd.DataFrame([step_features])
         step_df = step_df.reindex(columns=features, fill_value=0)
         
-        # Predict traffic values
         pred_traffic = int(max(0, traffic_model.predict(step_df)[0]))
         
-        # Append latest metric to feature matrix so revenue calculations scale accurately
         if "Total_Vehicles" in features:
             step_df["Total_Vehicles"] = pred_traffic
             
@@ -275,7 +301,7 @@ if multi_submitted:
         forecast_results.append({
             "Date": date_str,
             "Day": target_day.strftime('%A'),
-            "Live Rain Forecast": f"{live_rain} mm",
+            "Rain Parameter": f"{live_rain:.2f} mm",
             "Predicted Traffic (Vehicles)": f"{pred_traffic:,}",
             "Predicted Revenue (₹)": f"₹{pred_revenue:,}"
         })
