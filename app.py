@@ -68,18 +68,18 @@ st.subheader("Dataset Statistics (With Weather Records Included)")
 st.write(df[["Total_Vehicles","Total_Revenue"]].describe())
 
 # ======================================================
-# Hypothesis Testing
-# ======================================================
+# # Hypothesis Testing
+# # ======================================================
 
-st.header("Weekend Effect Test")
+# st.header("Weekend Effect Test")
 
-weekend = df[df["Is_Weekend"]==1]["Total_Vehicles"]
-weekday = df[df["Is_Weekend"]==0]["Total_Vehicles"]
+# weekend = df[df["Is_Weekend"]==1]["Total_Vehicles"]
+# weekday = df[df["Is_Weekend"]==0]["Total_Vehicles"]
 
-t_stat, p_val = ttest_ind(weekend,weekday)
+# t_stat, p_val = ttest_ind(weekend,weekday)
 
-st.write("Mean Weekend:", weekend.mean())
-st.write("Mean Weekday:", weekday.mean())
+# st.write("Mean Weekend:", weekend.mean())
+# st.write("Mean Weekday:", weekday.mean())
 
 # ======================================================
 # Feature Matrix
