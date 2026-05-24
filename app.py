@@ -65,7 +65,7 @@ df = df.dropna().reset_index(drop=True)
 monthly_weather_summary = df.groupby("Month")[["T2M_MAX", "PRECTOTCORR"]].mean().to_dict(orient="index")
 
 st.subheader("Dataset Statistics (With Weather Records Included)")
-st.write(df[["Total_Vehicles","Total_Revenue", "T2M_MAX", "PRECTOTCORR"]].describe())
+st.write(df[["Total_Vehicles","Total_Revenue"]].describe())
 
 # ======================================================
 # Hypothesis Testing
