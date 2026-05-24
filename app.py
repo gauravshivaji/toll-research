@@ -145,24 +145,24 @@ revenue_model = train_revenue_model(X_train, y_rev_train)
 # Model Evaluation
 # ======================================================
 
-st.header("Model Comparison")
+# st.header("Model Comparison")
 
-results = []
+# results = []
 
-for name, model in trained_models.items():
+# for name, model in trained_models.items():
 
-    preds = model.predict(X_test)
+#     preds = model.predict(X_test)
 
-    mae = mean_absolute_error(y_test,preds)
-    rmse = np.sqrt(mean_squared_error(y_test,preds))
-    r2 = r2_score(y_test,preds)
+#     mae = mean_absolute_error(y_test,preds)
+#     rmse = np.sqrt(mean_squared_error(y_test,preds))
+#     r2 = r2_score(y_test,preds)
 
-    results.append([name,mae,rmse,r2])
+#     results.append([name,mae,rmse,r2])
 
-results_df = pd.DataFrame(results,
-        columns=["Model","MAE","RMSE","R2"])
+# results_df = pd.DataFrame(results,
+#         columns=["Model","MAE","RMSE","R2"])
 
-st.write(results_df.sort_values("R2",ascending=False))
+# st.write(results_df.sort_values("R2",ascending=False))
 
 # ======================================================
 # Walk Forward Validation
