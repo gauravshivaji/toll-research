@@ -168,24 +168,24 @@ revenue_model = train_revenue_model(X_train, y_rev_train)
 # Walk Forward Validation
 # ======================================================
 
-st.header("Walk Forward Validation")
+# st.header("Walk Forward Validation")
 
-tscv = TimeSeriesSplit(n_splits=5)
-mae_scores = []
+# tscv = TimeSeriesSplit(n_splits=5)
+# mae_scores = []
 
-for train_idx,test_idx in tscv.split(X):
+# for train_idx,test_idx in tscv.split(X):
 
-    X_tr, X_te = X.iloc[train_idx], X.iloc[test_idx]
-    y_tr, y_te = y.iloc[train_idx], y.iloc[test_idx]
+#     X_tr, X_te = X.iloc[train_idx], X.iloc[test_idx]
+#     y_tr, y_te = y.iloc[train_idx], y.iloc[test_idx]
 
-    model = XGBRegressor()
-    model.fit(X_tr,y_tr)
+#     model = XGBRegressor()
+#     model.fit(X_tr,y_tr)
 
-    pred = model.predict(X_te)
+#     pred = model.predict(X_te)
 
-    mae_scores.append(mean_absolute_error(y_te,pred))
+#     mae_scores.append(mean_absolute_error(y_te,pred))
 
-st.write("Average Walk Forward MAE:", np.mean(mae_scores))
+# st.write("Average Walk Forward MAE:", np.mean(mae_scores))
 
 # ======================================================
 # Regime Detection
