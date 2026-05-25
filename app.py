@@ -22,7 +22,7 @@ from sklearn.cluster import KMeans
 from sklearn.preprocessing import StandardScaler
 
 st.set_page_config(layout="wide")
-st.title("🚦 Toll Traffic & Weather-Integrated Research Dashboard")
+st.title("🚦 Toll Traffic & Reveneu Research Dashboard")
 
 # ======================================================
 # Upload Dataset
